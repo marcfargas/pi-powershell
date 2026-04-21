@@ -37,7 +37,7 @@ type OnData = (text: string) => void;
 /**
  * Direct PowerShell execution. Optionally streams output via onData callback.
  */
-async function executePowerShellDirect(options: PowerShellOptions, onData?: OnData): Promise<PowerShellResult> {
+async function executePowerShellDirect(options: PowerShellOptions, onData?: OnData, signal?: AbortSignal): Promise<PowerShellResult> {
 	const { command, timeout = 30000, workingDirectory } = options;
 
 	// Force UTF-8 output encoding so non-ASCII characters (accents, etc.) aren't mangled
@@ -56,6 +56,11 @@ async function executePowerShellDirect(options: PowerShellOptions, onData?: OnDa
 		let stderr = '';
 		let timeoutId: NodeJS.Timeout | null = null;
 
+		// Kill the child and stop streaming if the agent run is aborted
+		signal?.addEventListener('abort', () => {
+			child.kill('SIGTERM');
+		}, { once: true });
+
 		if (timeout > 0) {
 			timeoutId = setTimeout(() => {
 				child.kill('SIGTERM');
@@ -66,7 +71,7 @@ async function executePowerShellDirect(options: PowerShellOptions, onData?: OnDa
 		child.stdout?.on('data', (data) => {
 			const chunk = data.toString();
 			stdout += chunk;
-			onData?.(stdout);
+			if (!signal?.aborted) onData?.(stdout);
 		});
 
 		child.stderr?.on('data', (data) => {
@@ -88,10 +93,10 @@ async function executePowerShellDirect(options: PowerShellOptions, onData?: OnDa
 /**
  * Execute PowerShell command with error recovery for batch files.
  */
-export async function executePowerShell(options: PowerShellOptions, onData?: OnData): Promise<PowerShellResult> {
+export async function executePowerShell(options: PowerShellOptions, onData?: OnData, signal?: AbortSignal): Promise<PowerShellResult> {
 	const { command, timeout = 30000, workingDirectory } = options;
 	
-	const firstResult = await executePowerShellDirect({ command, timeout, workingDirectory }, onData);
+	const firstResult = await executePowerShellDirect({ command, timeout, workingDirectory }, onData, signal);
 	
 	// Retry with cmd /c if batch file error
 	const isWin32Error = firstResult.stderr.includes('no es una aplicación Win32 válida') ||
@@ -99,7 +104,7 @@ export async function executePowerShell(options: PowerShellOptions, onData?: OnD
 						firstResult.stderr.includes('cannot run due to the error');
 	
 	if (!firstResult.success && isWin32Error) {
-		return await executePowerShellDirect({ command: `cmd /c "${command}"`, timeout, workingDirectory }, onData);
+		return await executePowerShellDirect({ command: `cmd /c "${command}"`, timeout, workingDirectory }, onData, signal);
 	}
 	
 	return firstResult;
@@ -139,8 +144,9 @@ async function runCommand(
 	timeoutMs: number,
 	workingDirectory: string,
 	session: string | undefined,
-	executor: (opts: PowerShellOptions, onData?: OnData) => Promise<PowerShellResult>,
+	executor: (opts: PowerShellOptions, onData?: OnData, signal?: AbortSignal) => Promise<PowerShellResult>,
 	onUpdate?: AgentToolUpdateCallback<PowerShellToolResult>,
+	signal?: AbortSignal,
 ): Promise<AgentToolResult<PowerShellToolResult>> {
 	try {
 		if (session) {
@@ -156,13 +162,14 @@ async function runCommand(
 
 		// Stream partial output via onUpdate
 		const onData = onUpdate ? (partialStdout: string) => {
+			if (signal?.aborted) return;
 			onUpdate({
 				content: [{ type: "text", text: truncateOutput(partialStdout) }],
 				details: { exitCode: -1, success: true, command },
 			});
 		} : undefined;
 
-		const result = await executor({ command, timeout: timeoutMs, workingDirectory }, onData);
+		const result = await executor({ command, timeout: timeoutMs, workingDirectory }, onData, signal);
 		const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
 		return createResult(truncateOutput(output), {
 			exitCode: result.exitCode,
@@ -235,9 +242,9 @@ ENVIRONMENT VARIABLES: Use PowerShell syntax: $env:NODE_ENV = 'production'; npm 
 		renderCall: psRenderCall,
 		renderResult: psRenderResult,
 
-		async execute(_toolCallId, params, _signal, onUpdate, ctx: ExtensionContext) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx: ExtensionContext) {
 			const { command, timeout = 30, session } = params;
-			return runCommand(command, timeout * 1000, ctx.cwd, session, executePowerShell, onUpdate);
+			return runCommand(command, timeout * 1000, ctx.cwd, session, executePowerShell, onUpdate, signal);
 		}
 	});
 
