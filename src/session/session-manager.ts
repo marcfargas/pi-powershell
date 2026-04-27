@@ -2,8 +2,17 @@
  * PowerShell Session Manager - Persistent PSSession management for local and remote execution
  */
 
-import { spawn, ChildProcess } from "child_process";
+import { spawn, spawnSync, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
+
+/** Resolve PowerShell executable: prefer pwsh (7+), fall back to powershell.exe (5.1). */
+function resolvePowerShellExe(): string {
+	const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["pwsh"], { stdio: "ignore" });
+	if (probe.status === 0) return "pwsh";
+	return "powershell.exe";
+}
+
+export const POWERSHELL_EXE = resolvePowerShellExe();
 
 export interface PSSessionOptions {
 	computerName?: string;
@@ -157,7 +166,7 @@ export class PowerShellSessionManager extends EventEmitter {
 	 */
 	private async createLocalSession(name: string, sessionInfo: PSSessionInfo): Promise<void> {
 		return new Promise((resolve, reject) => {
-			const process = spawn('pwsh', [
+			const process = spawn(POWERSHELL_EXE, [
 				'-NoProfile',
 				'-NoLogo', 
 				'-ExecutionPolicy', 'Bypass',
@@ -406,7 +415,7 @@ Invoke-Command -Session $session -ScriptBlock {
 
 		// Execute using a temporary PowerShell process
 		return new Promise((resolve, reject) => {
-			const process = spawn('pwsh', [
+			const process = spawn(POWERSHELL_EXE, [
 				'-NoProfile',
 				'-NonInteractive',
 				'-ExecutionPolicy', 'Bypass',

@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
 import { executePowerShell } from "./powershell.js";
+import { POWERSHELL_EXE } from "../session/session-manager.js";
 
 /** Short unique suffix to avoid temp file collisions across pi instances */
 const instanceId = randomBytes(3).toString('hex');
@@ -128,7 +129,7 @@ Bash-style env vars (NODE_ENV=production npm start) are auto-converted to PowerS
 			const inner = `Set-Location ''${workDir.replace(/'/g, "''")}''`
 				+ `; ${psCommand.replace(/'/g, "''")}`;
 			const r = await run(
-				`$p = Start-Process -FilePath 'pwsh' -ArgumentList '-NoProfile','-Command','& { ${inner} } ${redirect}' -WindowStyle Hidden -PassThru; $p.Id`,
+				`$p = Start-Process -FilePath '${POWERSHELL_EXE}' -ArgumentList '-NoProfile','-Command','& { ${inner} } ${redirect}' -WindowStyle Hidden -PassThru; $p.Id`,
 				ctx.cwd, 10000
 			);
 

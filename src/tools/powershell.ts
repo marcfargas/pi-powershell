@@ -7,7 +7,7 @@ import { Theme } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
-import { sessionManager } from "../session/session-manager.js";
+import { sessionManager, POWERSHELL_EXE } from "../session/session-manager.js";
 
 export interface PowerShellOptions {
 	command: string;
@@ -44,7 +44,7 @@ async function executePowerShellDirect(options: PowerShellOptions, onData?: OnDa
 	const utf8Prefix = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; ';
 
 	return new Promise((resolve) => {
-		const child = spawn('pwsh', [
+		const child = spawn(POWERSHELL_EXE, [
 			'-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', utf8Prefix + command
 		], {
 			cwd: workingDirectory,
